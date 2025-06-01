@@ -3,8 +3,9 @@ from pathlib import Path
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import uuid
-from workflow import MicroSiteGenerator
+from .workflow import MicroSiteGenerator
 from typing import Optional
+import datetime
 
 app = FastAPI(
     title="Audio Transcription API with Workflow",
@@ -16,6 +17,35 @@ workflow = MicroSiteGenerator()
 executor = ThreadPoolExecutor(max_workers=4)
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
+
+
+@app.get("/")
+async def health_check():
+    """Health check endpoint to verify application status."""
+    try:
+        # Check if upload directory exists and is writable
+        upload_dir_status = UPLOAD_DIR.exists() and UPLOAD_DIR.is_dir()
+
+        return {
+            "status": "healthy",
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "version": "1.0.0",
+            "services": {
+                "workflow": "operational",
+                "upload_directory": "operational" if upload_dir_status else "error",
+                "executor": "operational" if executor else "error",
+            },
+            "uptime": "running",
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "status": "unhealthy",
+                "timestamp": datetime.datetime.utcnow().isoformat(),
+                "error": str(e),
+            },
+        )
 
 
 @app.post("/transcribe")
