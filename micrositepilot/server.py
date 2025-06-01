@@ -6,12 +6,10 @@ import uuid
 from .workflow import MicroSiteGenerator
 from typing import Optional
 import datetime
-from typing import AsyncIterator
-from agno.workflow import RunResponse
 
 app = FastAPI(
-    title="Audio Transcription API with Workflow",
-    description="API for converting audio to text using the MicroSiteGenerator workflow",
+    title="MicroSite Generator API",
+    description="API for converting audio recordings to deployed microsites via transcription, content extraction, HTML generation, and Netlify deployment",
     version="1.0.0",
 )
 
@@ -51,8 +49,8 @@ async def health_check():
 
 
 @app.post("/transcribe")
-async def generate_microsite_data(file: UploadFile, format: Optional[str] = None):
-    """Endpoint for audio file upload and microsite data generation using the workflow."""
+async def transcribe_and_deploy_microsite(file: UploadFile, format: Optional[str] = None):
+    """Endpoint for audio file upload, transcription, microsite generation, and Netlify deployment."""
     temp_path = None
     try:
         if not file.content_type.startswith("audio/"):
@@ -75,21 +73,39 @@ async def generate_microsite_data(file: UploadFile, format: Optional[str] = None
                 )
             )
             if responses:
-                return responses[
-                    -1
-                ].content  # Return the content of the final RunResponse
+                # Return the content of the final RunResponse (deployment details)
+                final_response = responses[-1].content
+                return final_response
             return None
 
-        site_html = await asyncio.get_event_loop().run_in_executor(
+        deployment_result = await asyncio.get_event_loop().run_in_executor(
             executor, run_workflow
         )
 
-        if site_html:
-            return site_html
+        if deployment_result:
+            # Format the response to include both deployment and workflow information
+            if isinstance(deployment_result, dict) and deployment_result.get("success"):
+                return {
+                    "status": "success",
+                    "message": "Audio successfully transcribed, microsite generated, and deployed to Netlify",
+                    "deployment": deployment_result,
+                    "workflow_completed": True,
+                }
+            else:
+                return {
+                    "status": "partial_success",
+                    "message": "Workflow completed but deployment may have failed",
+                    "deployment": deployment_result,
+                    "workflow_completed": True,
+                }
         else:
             raise HTTPException(
                 status_code=500,
-                detail="Workflow failed: No responses returned.",
+                detail={
+                    "status": "error",
+                    "message": "Workflow failed: No responses returned from transcription and deployment process.",
+                    "workflow_completed": False,
+                },
             )
 
     except HTTPException:
@@ -99,7 +115,14 @@ async def generate_microsite_data(file: UploadFile, format: Optional[str] = None
         import traceback
 
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "status": "error",
+                "message": f"Transcription and deployment workflow failed: {str(e)}",
+                "workflow_completed": False,
+            }
+        )
     finally:
         if temp_path and temp_path.exists():
             temp_path.unlink(missing_ok=True)
