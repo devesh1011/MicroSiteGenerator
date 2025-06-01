@@ -1,19 +1,14 @@
 from agno.workflow import Workflow, RunResponse, RunEvent
 from .agents.transcription_agent import transcription_agent, Transcription
 from .agents.site_builder_agent import microsite_builder_agent
-from .agents.info_extractor_agent import (
-    info_extractor,
-    DemoSummary,
-)
-from .agents.mcp_agent import run_agent
-from .agents.site_deployer_agent import run_agent as deploy_site
+from .agents.info_extractor_agent import info_extractor
+from .utils.netlify_deployment import deploy_html_file_with_digest
 from textwrap import dedent
 from agno.agent import Agent
-from typing import AsyncIterator, Union, Optional
+from typing import Iterator, Union, Optional
 from logging import Logger
 from pathlib import Path
 from agno.media import Audio
-import os
 from dotenv import load_dotenv
 import requests
 import json
@@ -40,30 +35,30 @@ class MicroSiteGenerator(Workflow):
     def save_html_to_file(self, html_content: str) -> str:
         """
         Manually save HTML content to the microsites directory.
-        
+
         Args:
             html_content: The HTML content to save
-            
+
         Returns:
             str: The full path to the saved HTML file
         """
         # Create microsites directory if it doesn't exist
         microsites_dir = Path(__file__).parent.parent / "microsites"
         microsites_dir.mkdir(exist_ok=True)
-        
+
         # Generate filename with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"demo_{timestamp}.html"
         file_path = microsites_dir / filename
-        
+
         try:
             # Write HTML content to file
-            with open(file_path, 'w', encoding='utf-8') as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 f.write(html_content)
-            
+
             logger.info(f"HTML saved successfully to: {file_path}")
             return str(file_path)
-            
+
         except Exception as e:
             logger.error(f"Failed to save HTML file: {e}")
             raise Exception(f"Could not save HTML file: {e}")
@@ -73,7 +68,7 @@ class MicroSiteGenerator(Workflow):
         audio_source: str,
         audio_format: str,
         use_transcription_cache: bool = True,
-    ) -> AsyncIterator[RunResponse]:
+    ) -> Iterator[RunResponse]:
         logger.info("Microsite generation initiated.")
 
         transcription_results: Optional[Transcription] = None
@@ -94,6 +89,7 @@ class MicroSiteGenerator(Workflow):
                 message=transcription_results.transcription
             )
             extracted_info = self.remove_markdown_json_wrapper(extracted_info.content)
+            print(extracted_info)
 
             microsite_builder_input = {
                 "extracted_info_json": extracted_info,
@@ -107,8 +103,15 @@ class MicroSiteGenerator(Workflow):
             html_file_path = self.save_html_to_file(site_html.content.content)
             logger.info(f"HTML saved to: {html_file_path}")
 
+            product_name = json.loads(extracted_info)["product_name"]
+
+            site_details = deploy_html_file_with_digest(
+                title=product_name,
+                html_file_path=html_file_path,
+            )
+
             yield RunResponse(
-                content=html_file_path,
+                content=site_details,
                 event=RunEvent.workflow_completed,
             )
         else:
