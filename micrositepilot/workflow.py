@@ -6,6 +6,7 @@ from .agents.info_extractor_agent import (
     DemoSummary,
 )
 from .agents.mcp_agent import run_agent
+from .agents.site_deployer_agent import run_agent as deploy_site
 from textwrap import dedent
 from agno.agent import Agent
 from typing import AsyncIterator, Union, Optional
@@ -16,6 +17,8 @@ import os
 from dotenv import load_dotenv
 import requests
 import json
+import asyncio
+from datetime import datetime
 
 load_dotenv()
 
@@ -33,6 +36,37 @@ class MicroSiteGenerator(Workflow):
     transcriber: Agent = transcription_agent
     info_extractor: Agent = info_extractor
     microsite_builder: Agent = microsite_builder_agent
+
+    def save_html_to_file(self, html_content: str) -> str:
+        """
+        Manually save HTML content to the microsites directory.
+        
+        Args:
+            html_content: The HTML content to save
+            
+        Returns:
+            str: The full path to the saved HTML file
+        """
+        # Create microsites directory if it doesn't exist
+        microsites_dir = Path(__file__).parent.parent / "microsites"
+        microsites_dir.mkdir(exist_ok=True)
+        
+        # Generate filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"demo_{timestamp}.html"
+        file_path = microsites_dir / filename
+        
+        try:
+            # Write HTML content to file
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+            
+            logger.info(f"HTML saved successfully to: {file_path}")
+            return str(file_path)
+            
+        except Exception as e:
+            logger.error(f"Failed to save HTML file: {e}")
+            raise Exception(f"Could not save HTML file: {e}")
 
     def run(
         self,
@@ -68,11 +102,15 @@ class MicroSiteGenerator(Workflow):
             site_html: RunResponse = microsite_builder_agent.run(
                 json.dumps(microsite_builder_input)
             )
+
+            # Save HTML to filesystem using manual function
+            html_file_path = self.save_html_to_file(site_html.content.content)
+            logger.info(f"HTML saved to: {html_file_path}")
+
             yield RunResponse(
-                content=site_html.content,
+                content=html_file_path,
                 event=RunEvent.workflow_completed,
             )
-            # await run_agent(site_html.content.content)
         else:
             yield RunResponse(
                 content="Site was not generated",

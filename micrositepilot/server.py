@@ -6,6 +6,8 @@ import uuid
 from .workflow import MicroSiteGenerator
 from typing import Optional
 import datetime
+from typing import AsyncIterator
+from agno.workflow import RunResponse
 
 app = FastAPI(
     title="Audio Transcription API with Workflow",
@@ -78,12 +80,12 @@ async def generate_microsite_data(file: UploadFile, format: Optional[str] = None
                 ].content  # Return the content of the final RunResponse
             return None
 
-        transcription = await asyncio.get_event_loop().run_in_executor(
+        site_html = await asyncio.get_event_loop().run_in_executor(
             executor, run_workflow
         )
 
-        if transcription:
-            return transcription
+        if site_html:
+            return site_html
         else:
             raise HTTPException(
                 status_code=500,
