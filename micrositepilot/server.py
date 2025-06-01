@@ -6,12 +6,30 @@ import uuid
 from .workflow import MicroSiteGenerator
 from typing import Optional
 import datetime
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
     title="MicroSite Generator API",
     description="API for converting audio recordings to deployed microsites via transcription, content extraction, HTML generation, and Netlify deployment",
     version="1.0.0",
 )
+
+origins = [
+    "*",  # Allows all origins
+    # You can specify specific origins like:
+    # "http://localhost",
+    # "http://localhost:8000",
+    # "https://your-frontend-domain.com",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods (GET, POST, PUT, DELETE, etc.)
+    allow_headers=["*"],  # Allows all headers
+)
+
 
 workflow = MicroSiteGenerator()
 executor = ThreadPoolExecutor(max_workers=4)
@@ -49,7 +67,9 @@ async def health_check():
 
 
 @app.post("/transcribe")
-async def transcribe_and_deploy_microsite(file: UploadFile, format: Optional[str] = None):
+async def transcribe_and_deploy_microsite(
+    file: UploadFile, format: Optional[str] = None
+):
     """Endpoint for audio file upload, transcription, microsite generation, and Netlify deployment."""
     temp_path = None
     try:
@@ -116,12 +136,12 @@ async def transcribe_and_deploy_microsite(file: UploadFile, format: Optional[str
 
         traceback.print_exc()
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail={
                 "status": "error",
                 "message": f"Transcription and deployment workflow failed: {str(e)}",
                 "workflow_completed": False,
-            }
+            },
         )
     finally:
         if temp_path and temp_path.exists():
