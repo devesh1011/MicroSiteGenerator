@@ -1,19 +1,21 @@
 from agno.workflow import Workflow, RunResponse, RunEvent
 from .agents.transcription_agent import transcription_agent, Transcription
-
-# from .agents.info_extractor_agent import (
-#     info_extractor,
-#     DemoSummary,
-# )  # Import DemoSummary
+from .agents.site_builder_agent import microsite_builder_agent
+from .agents.info_extractor_agent import (
+    info_extractor,
+    DemoSummary,
+)
+from .agents.mcp_agent import run_agent
 from textwrap import dedent
 from agno.agent import Agent
-from typing import Iterator, Union, Optional
+from typing import AsyncIterator, Union, Optional
 from logging import Logger
 from pathlib import Path
 from agno.media import Audio
 import os
 from dotenv import load_dotenv
-import requests  # Added for basic URL downloading
+import requests
+import json
 
 load_dotenv()
 
@@ -29,26 +31,133 @@ class MicroSiteGenerator(Workflow):
     )
 
     transcriber: Agent = transcription_agent
-    # info_extractor: Agent = info_extractor
+    info_extractor: Agent = info_extractor
+    microsite_builder: Agent = microsite_builder_agent
 
     def run(
         self,
         audio_source: str,
         audio_format: str,
         use_transcription_cache: bool = True,
-    ) -> Iterator[RunResponse]:
+    ) -> AsyncIterator[RunResponse]:
         logger.info("Microsite generation initiated.")
 
-        transcription_results = self.transcribe_audio(audio_source, audio_format)
+        transcription_results: Optional[Transcription] = None
+        if use_transcription_cache:
+            transcription_results = self.get_cached_transcription(audio_source)
+            if transcription_results:
+                logger.info(f"Using cached transcription for {audio_source}")
+            else:
+                logger.info(
+                    f"No cached transcription found for {audio_source}, transcribing now."
+                )
+                transcription_results = self.transcribe_audio(
+                    audio_source, audio_format
+                )
         if transcription_results:
+            self._add_transcription_to_cache(audio_source, transcription_results)
+            extracted_info: RunResponse = self.info_extractor.run(
+                message=transcription_results.transcription
+            )
+            extracted_info = self.remove_markdown_json_wrapper(extracted_info.content)
+
+            microsite_builder_input = {
+                "extracted_info_json": extracted_info,
+                "raw_transcription": transcription_results.transcription,
+            }
+            site_html: RunResponse = microsite_builder_agent.run(
+                json.dumps(microsite_builder_input)
+            )
             yield RunResponse(
-                content=transcription_results.transcription,  # The transcription text
+                content=site_html.content,
                 event=RunEvent.workflow_completed,
             )
+            # await run_agent(site_html.content.content)
         else:
             yield RunResponse(
-                content="Transcription failed.", event=RunEvent.workflow_completed
+                content="Site was not generated",
+                event=RunEvent.workflow_completed,
             )
+
+        # transcription_results = self.transcribe_audio(audio_source, audio_format)
+        # if transcription_results:
+        #     yield RunResponse(
+        #         content=transcription_results.transcription,  # The transcription text
+        #         event=RunEvent.workflow_completed,
+        #     )
+        # else:
+        #     yield RunResponse(
+        #         content="Transcription failed.", event=RunEvent.workflow_completed
+        #     )
+        # extracted_info: RunResponse = self.info_extractor.run(
+        #     message=transcription_results.transcription
+        # )
+        # print(self.remove_markdown_json_wrapper(extracted_info.content))
+
+    def get_cached_transcription(
+        self, audio_source: Union[str, Path, bytes]
+    ) -> Optional[Transcription]:
+        """
+        Retrieves a cached transcription result for a given audio source.
+        """
+        # For caching, audio_source needs to be hashable. If it's bytes, convert to a string key.
+        cache_key = (
+            str(audio_source)
+            if isinstance(audio_source, (str, Path))
+            else f"bytes_hash_{hash(audio_source)}"
+        )
+        logger.info(f"Checking if cached transcription exists for {cache_key}.")
+        transcription_result = self.session_state.get("transcription_cache", {}).get(
+            cache_key
+        )
+        # Use model_validate to convert dict from cache back to Transcription object
+        return (
+            Transcription.model_validate(transcription_result)
+            if transcription_result and isinstance(transcription_result, dict)
+            else None
+        )
+
+    def _add_transcription_to_cache(
+        self, audio_source: Union[str, Path, bytes], transcription_result: Transcription
+    ):
+        """
+        Adds a transcription result to the session cache.
+        """
+        cache_key = (
+            str(audio_source)
+            if isinstance(audio_source, (str, Path))
+            else f"bytes_hash_{hash(audio_source)}"
+        )
+        logger.info(f"Saving transcription results for audio source: {cache_key}")
+        self.session_state.setdefault("transcription_cache", {})
+        # Store the Pydantic model as a dictionary
+        self.session_state["transcription_cache"][
+            cache_key
+        ] = transcription_result.model_dump()
+
+    def remove_markdown_json_wrapper(self, json_string_with_markdown: str) -> str:
+        """
+        Removes the '```json' prefix and '```' suffix from a string,
+        assuming the JSON content is wrapped in a Markdown code block.
+
+        Args:
+            json_string_with_markdown: The string containing the JSON wrapped in markdown.
+                                    Expected format: ```json\n{...json content...}\n```
+
+        Returns:
+            The cleaned JSON string without the markdown wrapper.
+        """
+        cleaned_string = json_string_with_markdown
+
+        # Remove '```json\n' from the start
+        if cleaned_string.startswith("```json\n"):
+            cleaned_string = cleaned_string[len("```json\n") :]
+
+        # Remove '\n```' from the end
+        if cleaned_string.endswith("\n```"):
+            cleaned_string = cleaned_string[: -len("\n```")]
+
+        return cleaned_string
 
     # --- Caching Functions ---
     def get_cached_transcription(
@@ -130,9 +239,8 @@ class MicroSiteGenerator(Workflow):
         """
         logger.info(f"Running transcription agent for audio format: {audio_format}")
         try:
-            # self.transcriber.run returns a RunResponse, so access its .content
             run_response: RunResponse = self.transcriber.run(
-                input="Transcribe this audio exactly as heard",  # This input might need to be dynamic or removed if agent is purely audio-driven
+                input="Transcribe this audio exactly as heard",
                 audio=[Audio(content=audio_source_bytes, format=audio_format)],
             )
             return run_response.content
