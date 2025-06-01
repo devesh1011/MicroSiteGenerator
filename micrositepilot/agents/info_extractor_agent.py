@@ -1,12 +1,19 @@
 from agno.agent import Agent
 from agno.models.google import Gemini
 from textwrap import dedent
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List
 
 
 # Define the nested model for individual features demonstrated
 class FeatureDemonstrated(BaseModel):
+    # Added model_config to explicitly define JSON schema metadata
+    model_config = ConfigDict(
+        json_schema_extra={
+            "title": "Demonstrated Feature",
+            "description": "Details of a product feature shown during the demo, including its timestamps.",
+        }
+    )
     name: str = Field(..., description="The name of the product feature demonstrated.")
     timestamp_start: str = Field(
         ...,
@@ -54,27 +61,27 @@ info_extractor = Agent(
     model=Gemini(id="gemini-2.0-flash-001", response_modalities=["text"]),
     description=dedent(
         """\
-                Extracts key information from product demo call transcriptions.
-                Analyzes conversation context to identify product details, prospect pain points,
-                demonstrated features with timestamps, and actionable next steps, structuring
-                the output for microsite generation."""
+        Extracts key information from product demo call transcriptions.
+        Analyzes conversation context to identify product details, prospect pain points,
+        demonstrated features with timestamps, and actionable next steps, structuring
+        the output for microsite generation."""
     ),
     instructions=dedent(
         """\
-                Given a timestamped product demo call transcription, extract the following information.
-                Format your response strictly as a JSON object validated by the `DemoSummary` Pydantic model.
+        Given a timestamped product demo call transcription, extract the following information.
+        Format your response strictly as a JSON object validated by the `DemoSummary` Pydantic model.
 
-                **Extraction Rules:**
-                1.  **Product Name:** Identify the primary product or solution discussed.
-                2.  **Prospect Company:** Determine the name of the prospective customer's organization.
-                3.  **Sales Rep:** Identify the name of the sales representative.
-                4.  **Summary Points:** Provide 3-5 concise, high-level bullet points summarizing the entire demo.
-                5.  **Pain Points Discussed:** List specific challenges or problems the prospect mentioned.
-                6.  **Features Demonstrated:** For each feature explicitly shown or discussed in detail, provide its name and the precise start and end timestamps from the transcription. If a feature is mentioned but not demonstrated, do not include timestamps.
-                7.  **Next Steps:** List any clear action items or agreed-upon follow-ups for either party.
-                8.  **Unanswered Questions:** List any specific questions posed by the prospect that were not fully resolved during the call.
-                9.  **Strict JSON Output:** Ensure the output is valid JSON and perfectly matches the structure defined by the `DemoSummary` model. Do not include any extra text or conversational filler outside the JSON.
-                """
+        **Extraction Rules:**
+        1. **Product Name:** Identify the primary product or solution discussed.
+        2. **Prospect Company:** Determine the name of the prospective customer's organization.
+        3. **Sales Rep:** Identify the name of the sales representative.
+        4. **Summary Points:** Provide 3-5 concise, high-level bullet points summarizing the entire demo.
+        5. **Pain Points Discussed:** List specific challenges or problems the prospect mentioned.
+        6. **Features Demonstrated:** For each feature explicitly shown or discussed in detail, provide a dictionary with 'name' (the feature name), 'timestamp_start' (start time, e.g., '00:05:10'), and 'timestamp_end' (end time, e.g., '00:08:45'). If a feature is mentioned but not demonstrated, do not include timestamps.
+        7. **Next Steps:** List any clear action items or agreed-upon follow-ups for either party.
+        8. **Unanswered Questions:** List any specific questions posed by the prospect that were not fully resolved during the call.
+        9. **Strict JSON Output:** Ensure the output is valid JSON and perfectly matches the structure defined by the `DemoSummary` model. Do not include any extra text or conversational filler outside the JSON.
+        """
     ),
-    response_model=DemoSummary,
+    # response_model=DemoSummary,
 )
