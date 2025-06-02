@@ -9,7 +9,7 @@ class Transcription(BaseModel):
 
 
 transcription_agent = Agent(
-    model=Gemini(id="gemini-2.0-flash-001", response_modalities=["text"]),
+    model=Gemini(id="gemini-2.0-flash-lite", response_modalities=["text"]),
     description=dedent(
         """\
                 Highly accurate, verbatim audio-to-text transcription service.
