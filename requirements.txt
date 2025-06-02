@@ -1,8 +1,5 @@
 agno
-google-adk
 netlify-python
-openinference-instrumentation-agno
-opentelemetry-exporter-otlp
 pydub
 fastapi
 uvicorn
